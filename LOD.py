@@ -85,6 +85,47 @@ def build_triangular_mesh(Nx, Ny, refine):
 
     return mesh
 
+def elems_to_coo(elems, symmetric=True, unique=True):
+    """
+    Build graph connectivity (node adjacency) from element connectivity.
+
+    Parameters
+    ----------
+    elems : (n_elems, c_d) ndarray
+        Element connectivity (e.g. triangles: c_d = 3)
+    symmetric : bool
+        If True, include both (i,j) and (j,i)
+    unique : bool
+        If True, remove duplicate edges
+
+    Returns
+    -------
+    row : ndarray
+    col : ndarray
+        COO representation of graph edges
+    """
+    rows = []
+    cols = []
+
+    for elem in elems:
+        for i in range(len(elem)):
+            for j in range(i + 1, len(elem)):
+                rows.append(elem[i])
+                cols.append(elem[j])
+                if symmetric:
+                    rows.append(elem[j])
+                    cols.append(elem[i])
+
+    row = np.array(rows, dtype=int)
+    col = np.array(cols, dtype=int)
+
+    if unique:
+        edges = np.stack([row, col], axis=1)
+        edges = np.unique(edges, axis=0)
+        row, col = edges[:, 0], edges[:, 1]
+
+    return row, col
+
 ######################################################
 ### PATCHING
 ######################################################
@@ -802,20 +843,18 @@ def process_single_element(l, mesh, k, adjacency, A_h, C_h, fine_in_coarse, kapp
             
     return element_updates
 
-def computeCorrections(mesh, k, adjacency, A_h, B_H, P_h, kappa_func, n_jobs=-1):
+def computeCorrections(mesh, k, adjacency, fine_in_coarse, A_h, B_H, C_h, kappa_func, n_jobs=-1):
     N_H = mesh["coarse_nodes"].shape[0]
     N_h = mesh["fine_nodes"].shape[0]
     NTH = mesh["coarse_elems"].shape[0]
     
     A_h = sparse.csr_matrix(A_h)
-    C_h = build_IH_quasi_interpolation(mesh)
-    fine_in_coarse = precompute_fine_in_coarse(mesh)
 
     # Execute the loop in parallel
     # n_jobs=-1 uses all available CPU cores
     results = Parallel(n_jobs=n_jobs)(
         delayed(process_single_element)(l, mesh, k, adjacency, A_h, C_h, fine_in_coarse, kappa_func, B_H)
-        for l in tqdm(range(NTH))
+        for l in range(NTH)
     )
 
     # Assembly phase (sequential, but fast)
