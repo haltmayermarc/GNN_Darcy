@@ -21,7 +21,7 @@ from scipy.spatial.distance import cdist
 from LOD import *
 
 parser = argparse.ArgumentParser("SEM")
-parser.add_argument("--type", type=str, choices=['quantile', 'coarse_checkerboard', 'fine_checkerboard' 'horizontal', 'vertical'])
+parser.add_argument("--type", type=str, choices=['quantile', 'coarse_checkerboard', 'fine_checkerboard', 'horizontal', 'vertical'])
 parser.add_argument("--H", type=int, default=3)
 parser.add_argument("--h", type=int, default=7)
 parser.add_argument("--k", type=int, default=3)
