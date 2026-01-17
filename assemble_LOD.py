@@ -153,11 +153,6 @@ def create_dataset(num_input, H, h, kappa_values):
     if TYPE == "quantile":
         sampler = SEGaussianSamplerSVD(pos, sigma=sigma, ell=ell, mean=1.0, tol=1e-8)
     
-    # Function space for GRF sampling
-    mesh_fenics = UnitSquareMesh(Nx, Ny)
-    V = FunctionSpace(mesh_fenics, "CG", 1)
-    K = np.zeros([Nx, Ny])
-    
     ###########################################################
     # Generate all data that do not depend 
     # on a given coefficient instance or patch
@@ -232,12 +227,14 @@ def create_dataset(num_input, H, h, kappa_values):
             
             # --- checkerboard ---
             if TYPE == "coarse_checkerboard":
+                K = np.zeros([Nx,Ny])
                 for j in range(Ny):
                     for i in range(Nx):
                         idx = rng.integers(0, len(kappa_values))
                         K[j, i] = kappa_values[idx]
                         
             elif TYPE == "fine_checkerboard":
+                K = np.zeros([int(1/h),int(1/h)])
                 for j in range(int(1/h)):
                     for i in range(int(1/h)):
                         idx = rng.integers(0, len(kappa_values))
@@ -245,6 +242,7 @@ def create_dataset(num_input, H, h, kappa_values):
 
             # --- horizontal stripes ---
             elif TYPE == "horizontal":
+                K = np.zeros([int(1/h),int(1/h)])
                 n_stripes = int(1/h)
                 stripe_vals = rng.choice(kappa_values, size=n_stripes)
 
@@ -254,6 +252,7 @@ def create_dataset(num_input, H, h, kappa_values):
 
             # --- vertical stripes ---
             elif TYPE == "vertical":
+                K = np.zeros([int(1/h),int(1/h)])
                 n_stripes = int(1/h)
                 stripe_vals = rng.choice(kappa_values, size=n_stripes)
 
