@@ -198,8 +198,6 @@ def create_dataset(num_input, H, h, kappa_values):
             rng = np.random.default_rng()
             a_sample = sampler.sample(rng)
             a_sample = np.exp(a_sample)
-            #a = Function(V)
-            #a.vector()[:] = a_sample
             q_edges = np.quantile(a_sample, np.linspace(0, 1, kappa_values.shape[0]+1))
             
             kappa_shuffled = np.asarray(kappa_values, dtype=float).copy()
@@ -227,9 +225,6 @@ def create_dataset(num_input, H, h, kappa_values):
                 u_lod = np.linalg.solve(A_LOD_matrix, f_LOD_vector)
             except np.linalg.LinAlgError:
                 u_lod = np.linalg.lstsq(A_LOD_matrix + 1e-12*np.eye(A_LOD_matrix.shape[0]), f_LOD_vector, rcond=None)[0]
-            
-            #u_H = np.zeros(A_LOD_matrix.shape[0])
-            #u_H[interior] = u_lod
             train_fenics_u.append(u_lod)
             
         elif TYPE in ["coarse_checkerboard", "fine_checkerboard", "horizontal", "vertical"]:
@@ -306,8 +301,6 @@ def create_dataset(num_input, H, h, kappa_values):
             rng = np.random.default_rng()
             a_sample = sampler.sample(rng)
             a_sample = np.exp(a_sample)
-            #a = Function(V)
-            #a.vector()[:] = a_sample
             q_edges = np.quantile(a_sample, np.linspace(0, 1, kappa_values.shape[0]+1))
             
             kappa_shuffled = np.asarray(kappa_values, dtype=float).copy()
@@ -334,9 +327,6 @@ def create_dataset(num_input, H, h, kappa_values):
                 u_lod = np.linalg.solve(A_LOD_matrix, f_LOD_vector)
             except np.linalg.LinAlgError:
                 u_lod = np.linalg.lstsq(A_LOD_matrix + 1e-12*np.eye(A_LOD_matrix.shape[0]), f_LOD_vector, rcond=None)[0]
-                
-            #u_H = np.zeros(A_LOD_matrix.shape[0])
-            #u_H[interior] = u_lod
             validate_fenics_u.append(u_lod)
             
         elif TYPE in ["coarse_checkerboard", "fine_checkerboard", "horizontal", "vertical"]:
