@@ -41,6 +41,7 @@ parser.add_argument("--validate_batch_size", type=int, default=32)
 parser.add_argument("--loss", type=str, choices=['mse', 'rel_l2', 'weak_form'], default='mse')
 parser.add_argument("--epochs", type=int, default=50000)
 parser.add_argument("--gpu", type=int, default=0)
+""" # Doesn't work
 parser.add_argument(
     "--conv_dims",
     type=int_list,
@@ -51,7 +52,7 @@ parser.add_argument(
     type=int_list,
     default=[0],
 )
-
+"""
 
 args = parser.parse_args()
 gparams = args.__dict__
@@ -101,8 +102,8 @@ if gparams["model"] == "SimpleDarcyGNN":
 elif gparams["model"] == "DarcyGNN":
     model_FEONet = MODEL(hidden_dim=hidden_dims, num_layers=num_layers, edge_dim=6)
 elif gparams["model"] == "GraphtoVec":
-    conv_dims = [3] + gparams['conv_dims']
-    mlp_dims = gparams['mlp_dims'] + [49]
+    conv_dims = [3] + [32, 64, 128, 256]
+    mlp_dims = [256, 128, 64] + [49]
     model_FEONet = MODEL(conv_dims=conv_dims, mlp_dims=mlp_dims, dropout=0.1)
     
 device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
@@ -459,7 +460,7 @@ for epoch in range(1, epochs + 1):
     for batch in train_loader:
         batch = batch.to(device)
 
-        if gparams["optimizer"] is "LBFGS":
+        if gparams["optimizer"] == "LBFGS":
             # LBFGS closure
             def lbfgs_closure():
                 optimizer.zero_grad()
