@@ -7,11 +7,11 @@ python3 assemble_LOD.py --type quantile
 ```
 
 ### Step2 - Train the GNN
-A miimalal command to train the GNN for the quantile-based coefficient is:
+A minimal command to train the GNN for the quantile-based coefficient is:
 ```
-python3 train_GNN.py --type quantile --basis_order 1
+python3 train_GNN.py --type quantile 
 ```
 If you want to train using the weak form loss:
 ```
-python3 train_GNN.py --type quantile --basis_order 1 --loss weak_form
+python3 train_GNN.py --type quantile --loss weak_form
 ```
