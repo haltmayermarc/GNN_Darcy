@@ -23,7 +23,7 @@ parser.add_argument("--model", type=str, default='LODMimetic', choices=['LODMime
 parser.add_argument("--optimizer", type=str, default="AdamW")
 parser.add_argument("--train_batch_size", type=int, default=64)
 parser.add_argument("--validate_batch_size", type=int, default=32)
-parser.add_argument("--loss", type=str, choices=['mse', 'rel_l2', 'weak_form'], default='mse')
+parser.add_argument("--loss", type=str, choices=['mse', 'rel_l2', 'l1', 'weak_form'], default='mse')
 parser.add_argument("--epochs", type=int, default=2000)
 parser.add_argument("--gpu", type=int, default=0)
 
@@ -229,12 +229,15 @@ def rel_L2_error(u_pred, u_true):
     return torch.norm(u_pred - u_true) / torch.norm(u_true)
 
 
-def compute_loss(model, u_pred_norm, batch, loss_type="mse", eps=1e-8):
+def compute_loss(model, u_pred_norm, batch, loss_type="mse", eps=1e-12):
     # We keep the *same* training target space as v2: normalized u.
     u_true_norm = model.encode_u(batch["u"])
 
     if loss_type == "mse":
         return torch.mean((u_pred_norm - u_true_norm) ** 2)
+    
+    if loss_type == "l1":
+        return torch.mean(torch.abs(u_pred_norm - u_true_norm))
 
     elif loss_type == "rel_l2":
         diff = u_pred_norm - u_true_norm
@@ -312,10 +315,11 @@ def rel_L2_error_fine(u_pred, batch, P_h, interior_idx, eps=1e-10):
 
     # Relative L2 error per sample
     num = torch.norm(u_fine_pred - u_fine, dim=1)
-    denom = torch.norm(u_fine, dim=1) + eps
+    denom = torch.norm(u_fine, dim=1)
 
     return torch.mean(num / denom)
 
+"""
 print("#########################")
 print("Start training CNN")
 print("#########################")
@@ -366,27 +370,28 @@ for epoch in range(1, epochs + 1):
         rel_err_total = 0.0
         rel_err_total_fine = 0.0
         count = 0
-        
+
         with torch.no_grad():
             for batch in val_loader:
                 batch = move_batch_to_device(batch, device)
 
                 u_pred = model_FEONet(batch["coeffs"])
                 u_true = batch["u"]
-                
-                diff = torch.norm(u_pred - u_true, dim=1)
-                denom = torch.norm(u_true, dim=1) + 1e-8
-                rel_err = torch.mean(diff / denom)
-                
-                rel_err_total_fine += rel_L2_error_fine(
-                    u_pred, batch, P_h, INTERIOR_IDX
-                ).item()
 
-                rel_err_total += rel_err.item()
-                count += 1
-        
+                diff = torch.norm(u_pred - u_true, dim=1)
+                denom = torch.norm(u_true, dim=1)
+
+                rel_err_total += torch.sum(diff / denom).item()
+                count += diff.shape[0]
+
+                rel_err_total_fine += (
+                    rel_L2_error_fine(u_pred, batch, P_h, INTERIOR_IDX).item()
+                    * diff.shape[0]
+                )
+
         rel_err = rel_err_total / count
-        rel_err_fine= rel_err_total_fine / count
+        rel_err_fine = rel_err_total_fine / count
+
         loss_history.append(epoch_loss)
         test_history.append(rel_err)
 
@@ -401,7 +406,7 @@ for epoch in range(1, epochs + 1):
                 u_true = batch["u"]                      # (B,49)  <-- physical
 
                 diff = torch.norm(u_pred - u_true, dim=1)
-                denom = torch.norm(u_true, dim=1) + 1e-8
+                denom = torch.norm(u_true, dim=1)
                 rel_err = torch.mean(diff / denom)
 
                 rel_err_total += rel_err.item()
@@ -434,3 +439,129 @@ torch.save(checkpoint, save_path)
 
 print(f"Model saved to {save_path}")
 print(f"\nTraining finished in {time.time() - start_time:.2f} seconds.")
+"""
+print("#########################")
+print("Start training CNN")
+print("#########################")
+
+loss_history = []
+test_history = []
+train_history = []
+
+start_time = time.time()
+
+for epoch in range(1, epochs + 1):
+    model_FEONet.train()
+    epoch_loss = 0.0
+
+    # =======================
+    # Training
+    # =======================
+    for batch in train_loader:
+        batch = move_batch_to_device(batch, device)
+
+        if gparams['optimizer'] == "LBFGS":
+            # LBFGS requires closure
+            def lbfgs_closure():
+                optimizer.zero_grad()
+                u_pred_norm = model_FEONet.forward_norm(batch["coeffs"])
+                loss = compute_loss(model_FEONet, u_pred_norm, batch, loss_type)
+                loss.backward()
+                return loss
+
+            loss = optimizer.step(lbfgs_closure)
+            epoch_loss += loss.item()
+
+        else:
+            optimizer.zero_grad()
+            loss, _ = closure(model_FEONet, batch, loss_type)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+
+    scheduler.step()
+
+    # =======================
+    # Validation + Train Eval
+    # =======================
+    if epoch % 10 == 0:
+        model_FEONet.eval()
+
+        # ---------- Validation ----------
+        rel_err_total = 0.0
+        rel_err_total_fine = 0.0
+        count = 0
+
+        with torch.no_grad():
+            for batch in val_loader:
+                batch = move_batch_to_device(batch, device)
+
+                u_pred = model_FEONet(batch["coeffs"])   # (B,49)
+                u_true = batch["u"]                      # (B,49)
+
+                diff = torch.norm(u_pred - u_true, dim=1)
+                denom = torch.norm(u_true, dim=1)
+
+                rel_err_total += torch.sum(diff / denom).item()
+                count += diff.shape[0]
+
+                # fine-grid relative L2 (already averaged per sample → reweight)
+                rel_err_total_fine += (
+                    rel_L2_error_fine(u_pred, batch, P_h, INTERIOR_IDX).item()
+                    * diff.shape[0]
+                )
+
+        test_relL2 = rel_err_total / count
+        test_relL2_fine = rel_err_total_fine / count
+
+        test_history.append(test_relL2)
+        loss_history.append(epoch_loss)
+
+        # ---------- Training error ----------
+        rel_err_total = 0.0
+        count = 0
+
+        with torch.no_grad():
+            for batch in train_loader:
+                batch = move_batch_to_device(batch, device)
+
+                u_pred = model_FEONet(batch["coeffs"])
+                u_true = batch["u"]
+
+                diff = torch.norm(u_pred - u_true, dim=1)
+                denom = torch.norm(u_true, dim=1)
+
+                rel_err_total += torch.sum(diff / denom).item()
+                count += diff.shape[0]
+
+        train_relL2 = rel_err_total / count
+        train_history.append(train_relL2)
+
+        # ---------- Logging ----------
+        log_str = (
+            f"[Epoch {epoch:04d}] "
+            f"Loss={epoch_loss:.6f}   "
+            f"Test_relL2={test_relL2:.6f}   "
+            f"Test_relL2_fine={test_relL2_fine:.6f}   "
+            f"Train_relL2={train_relL2:.6f}"
+        )
+
+        print(log_str)
+        with open(log_file, "a") as f:
+            f.write(log_str + "\n")
+
+
+# =======================
+# Save model
+# =======================
+checkpoint = {
+    "model_state_dict": model_FEONet.state_dict(),
+    "args": gparams,
+}
+
+save_path = os.path.join(path, f"{gparams['model']}_{loss_type}.pt")
+torch.save(checkpoint, save_path)
+
+print(f"Model saved to {save_path}")
+print(f"\nTraining finished in {time.time() - start_time:.2f} seconds.")
+

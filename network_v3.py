@@ -46,17 +46,48 @@ class LODMimeticNet(nn.Module):
     def __init__(self, in_ch: int = 1, base: int = 32, mix_blocks: int = 6, out_dim: int = 49):
         super().__init__()
 
-        # 129 -> 65 -> 33 -> 17 -> 9
+        # 129 -> 65 -> 33 -> 17
         self.stem = nn.Sequential(
             GNAct(in_ch, base, 3, 1, 1),
             GNAct(base, base, 3, 1, 1),
         )
+        
         self.down1 = nn.Sequential(GNAct(base, base * 2, 3, 2, 1), ResBlock2D(base * 2))
         self.down2 = nn.Sequential(GNAct(base * 2, base * 4, 3, 2, 1), ResBlock2D(base * 4))
         self.down3 = nn.Sequential(GNAct(base * 4, base * 6, 3, 2, 1), ResBlock2D(base * 6))
         #self.down4 = nn.Sequential(GNAct(base * 6, base * 8, 3, 2, 1), ResBlock2D(base * 8))
+        """
+        
+        self.down1 = nn.Sequential(
+            GNAct(base, base * 2, 3, 2, 1),
+            ResBlock2D(base * 2),
+        )
 
-        ch = base * 6
+        self.down2 = nn.Sequential(
+            GNAct(base * 2, base * 4, 3, 2, 1),
+            ResBlock2D(base * 4),
+        )
+
+        self.down3 = nn.Sequential(
+            GNAct(base * 4, base * 6, 3, 2, 1),
+            ResBlock2D(base * 6),
+        )
+
+        # keep resolution (stride=1)
+        self.down4 = nn.Sequential(
+            GNAct(base * 6, base * 6, 3, 1, 1),
+            ResBlock2D(base * 6),
+        )
+
+        self.down5 = nn.Sequential(
+            GNAct(base * 6, base * 6, 3, 1, 1),
+            ResBlock2D(base * 6),
+        )
+        """
+        
+        self.firstmix = nn.Sequential(GNAct(base*6, base*8, 3, 1, 1), ResBlock2D(base*8))
+        
+        ch = base * 8
         self.mix = nn.Sequential(*[ResBlock2D(ch) for _ in range(mix_blocks)])
 
         self.head = nn.Conv2d(ch, 1, kernel_size=1)
@@ -67,7 +98,9 @@ class LODMimeticNet(nn.Module):
         h = self.down1(h)
         h = self.down2(h)
         h = self.down3(h)
-        #h = self.down4(h)  # (B, C, 9, 9)
+        #h = self.down4(h)
+        #h = self.down5(h)
+        h = self.firstmix(h)
         h = self.mix(h)
         u9 = self.head(h).squeeze(1)  # (B, 9, 9)
         u7 = u9[:, 1:16, 1:16].contiguous()  # interior
