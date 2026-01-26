@@ -14,17 +14,17 @@ from network_v3 import *
 # ARGS (kept compatible with train_CNN_v2)
 parser = argparse.ArgumentParser("SEM")
 ## Data
-parser.add_argument("--type", type=str, choices=['quantile', 'coarse_checkerboard', 'fine_checkerboard', 'horizontal', 'vertical'])
+parser.add_argument("--type", type=str, choices=['quantile', 'lognormal1', 'lognormal2', 'coarse_checkerboard', 'fine_checkerboard', 'horizontal', 'vertical'])
 parser.add_argument("--basis_order", type=str, choices=['1', '2'], default=1)
-parser.add_argument("--num_training_data", type=int, default=5000)
+parser.add_argument("--num_training_data", type=int, default=500)
 
 ## Train parameters
-parser.add_argument("--model", type=str, default='UNet', choices=['LODMimetic', 'FNOCoarse'])
+parser.add_argument("--model", type=str, default='LODMimetic', choices=['LODMimetic', 'FNOCoarse'])
 parser.add_argument("--optimizer", type=str, default="AdamW")
 parser.add_argument("--train_batch_size", type=int, default=64)
 parser.add_argument("--validate_batch_size", type=int, default=32)
 parser.add_argument("--loss", type=str, choices=['mse', 'rel_l2', 'weak_form'], default='mse')
-parser.add_argument("--epochs", type=int, default=500)
+parser.add_argument("--epochs", type=int, default=2000)
 parser.add_argument("--gpu", type=int, default=0)
 
 ## Input preprocessing
@@ -50,10 +50,10 @@ basis_order = gparams['basis_order']
 num_training_data = gparams['num_training_data']
 
 # Base path
-base = f"data/P{basis_order}_ne0.125_Darcy_{num_training_data}"
+base = f"data/P{basis_order}_ne0.0625_Darcy_{num_training_data}"
 
 if gparams["type"] is not None:
-    npz_path = f"{base}_{type}_CNN.npz"
+    npz_path = f"{base}_{type}.npz"
 else:
     npz_path = f"{base}.npz"
 
@@ -80,7 +80,7 @@ def compute_stats_with_preprocessor(fixed_npz, chunk_size: int = 64):
     """
 
     a_all = fixed_npz["train_coeffs_a"].astype(np.float32)  # (N,H,W)
-    u_all = fixed_npz["train_u"].astype(np.float32)         # (N,49)
+    u_all = fixed_npz["train_u"].astype(np.float32)  # (N,225)
 
     pre = DarcyInputPreprocess(
         coeff_preproc=gparams['coeff_preproc'],
@@ -124,6 +124,11 @@ class DarcyDatasetRaw(Dataset):
         self.u = npz_data[f"{split}_u"].astype(np.float32)
         self.matrices = npz_data[f"{split}_matrices"].astype(np.float32)
         self.loads = npz_data[f"{split}_load_vectors"].astype(np.float32)
+        if split == "validate":
+            self.Q = npz_data[f"{split}_Q"].astype(np.float32)
+        else:
+            self.Q = np.zeros((500,100,100))
+        self.u_fine = npz_data[f"{split}_u_h_fine"].astype(np.float32)
 
     def __len__(self):
         return self.u.shape[0]
@@ -133,10 +138,20 @@ class DarcyDatasetRaw(Dataset):
         u = torch.from_numpy(self.u[idx]).float()            # (49,)
         matrix = torch.from_numpy(self.matrices[idx]).float()
         load = torch.from_numpy(self.loads[idx]).float()
-        return {"coeffs": coeffs, "u": u, "matrix": matrix, "load": load}
+        u_fine = torch.from_numpy(self.u_fine[idx]).float()
+        Q_h = torch.from_numpy(self.Q[idx]).float()
+        return {"coeffs": coeffs, "u": u, "matrix": matrix, "load": load, "Q": Q_h, "u_fine": u_fine}
 
 
 fixed = np.load(npz_path, allow_pickle=True)
+P_h = fixed["P_h"]
+P_h = torch.tensor(P_h, dtype=torch.float32).to(device)
+
+INTERIOR_IDX = torch.tensor(
+    [j * 17 + i for j in range(1, 16) for i in range(1, 16)],
+    dtype=torch.long
+).to(device)
+
 x_mean, x_std, u_mean, u_std = compute_stats_with_preprocessor(fixed)
 
 train_dataset = DarcyDatasetRaw(fixed, "train")
@@ -271,6 +286,35 @@ if not os.path.exists(log_file):
         f.write("=" * 60 + "\n")
         f.write(f"Optimizer:\n{str(optimizer)}\n")
         f.write("=" * 60 + "\n")
+        
+def rel_L2_error_fine(u_pred, batch, P_h, interior_idx, eps=1e-10):
+    """
+    Computes:
+    || (P_h + Q_h[i])^T u[i] - u_fine[i] || / || u_fine[i] ||
+    averaged over the batch
+    """
+    Q_h = batch["Q"]            # (B, 289, 16641)
+    u_fine = batch["u_fine"]      # (B, 16641)
+
+    B = u_pred.shape[0]
+
+    # Build full coarse solution
+    u = torch.zeros(B, 289, device=u_pred.device)
+    u[:, interior_idx] = u_pred
+
+    # Fine reconstruction
+    M = P_h.unsqueeze(0) + Q_h          # (B, 289, 16641)
+    M_T = M.transpose(1, 2)             # (B, 16641, 289)
+
+    u_fine_pred = torch.bmm(
+        M_T, u.unsqueeze(-1)
+    ).squeeze(-1)                       # (B, 16641)
+
+    # Relative L2 error per sample
+    num = torch.norm(u_fine_pred - u_fine, dim=1)
+    denom = torch.norm(u_fine, dim=1) + eps
+
+    return torch.mean(num / denom)
 
 print("#########################")
 print("Start training CNN")
@@ -320,23 +364,29 @@ for epoch in range(1, epochs + 1):
     if epoch % 10 == 0:
         model_FEONet.eval()
         rel_err_total = 0.0
+        rel_err_total_fine = 0.0
         count = 0
-
+        
         with torch.no_grad():
             for batch in val_loader:
                 batch = move_batch_to_device(batch, device)
 
-                u_pred = model_FEONet(batch["coeffs"])   # (B,49)  <-- physical
-                u_true = batch["u"]                      # (B,49)  <-- physical
-
+                u_pred = model_FEONet(batch["coeffs"])
+                u_true = batch["u"]
+                
                 diff = torch.norm(u_pred - u_true, dim=1)
                 denom = torch.norm(u_true, dim=1) + 1e-8
                 rel_err = torch.mean(diff / denom)
+                
+                rel_err_total_fine += rel_L2_error_fine(
+                    u_pred, batch, P_h, INTERIOR_IDX
+                ).item()
 
                 rel_err_total += rel_err.item()
                 count += 1
         
         rel_err = rel_err_total / count
+        rel_err_fine= rel_err_total_fine / count
         loss_history.append(epoch_loss)
         test_history.append(rel_err)
 
@@ -362,8 +412,9 @@ for epoch in range(1, epochs + 1):
 
         log_str = (
             f"[Epoch {epoch:04d}] "
-            f"Loss={epoch_loss:.6e}   "
+            f"Loss={epoch_loss:.6f}   "
             f"Test_relL2={rel_err:.6f}   "
+            f"Test_relL2_fine={rel_err_fine:.6f}   "
             f"Train_relL2={rel_err_train:.6f}"
         )
 

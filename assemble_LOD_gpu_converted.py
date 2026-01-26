@@ -264,7 +264,10 @@ def create_dataset(num_input, H, h, kappa_values):
     
     # TRAINING SET
     np.random.seed(5)
-    for _ in tqdm(range(num_input[0])):
+    for i in tqdm(range(num_input[0])):
+        print("#########################################################")
+        print("Current Iteration: ", i)
+        print("#########################################################")
         if TYPE == "quantile":
             rng = np.random.default_rng()
             a_sample = sampler.sample(rng)
@@ -403,7 +406,10 @@ def create_dataset(num_input, H, h, kappa_values):
             
     # VALIDATION SET
     np.random.seed(10)
-    for _ in tqdm(range(num_input[1])):
+    for i in tqdm(range(num_input[1])):
+        print("#########################################################")
+        print("Current Iteration: ", i)
+        print("#########################################################")
         if TYPE == "quantile":
             rng = np.random.default_rng()
             a_sample = sampler.sample(rng)

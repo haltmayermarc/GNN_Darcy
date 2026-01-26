@@ -54,9 +54,9 @@ class LODMimeticNet(nn.Module):
         self.down1 = nn.Sequential(GNAct(base, base * 2, 3, 2, 1), ResBlock2D(base * 2))
         self.down2 = nn.Sequential(GNAct(base * 2, base * 4, 3, 2, 1), ResBlock2D(base * 4))
         self.down3 = nn.Sequential(GNAct(base * 4, base * 6, 3, 2, 1), ResBlock2D(base * 6))
-        self.down4 = nn.Sequential(GNAct(base * 6, base * 8, 3, 2, 1), ResBlock2D(base * 8))
+        #self.down4 = nn.Sequential(GNAct(base * 6, base * 8, 3, 2, 1), ResBlock2D(base * 8))
 
-        ch = base * 8
+        ch = base * 6
         self.mix = nn.Sequential(*[ResBlock2D(ch) for _ in range(mix_blocks)])
 
         self.head = nn.Conv2d(ch, 1, kernel_size=1)
@@ -67,10 +67,10 @@ class LODMimeticNet(nn.Module):
         h = self.down1(h)
         h = self.down2(h)
         h = self.down3(h)
-        h = self.down4(h)  # (B, C, 9, 9)
+        #h = self.down4(h)  # (B, C, 9, 9)
         h = self.mix(h)
         u9 = self.head(h).squeeze(1)  # (B, 9, 9)
-        u7 = u9[:, 1:8, 1:8].contiguous()  # interior
+        u7 = u9[:, 1:16, 1:16].contiguous()  # interior
         return u7.view(u7.size(0), -1)
 
 # ==================================================
