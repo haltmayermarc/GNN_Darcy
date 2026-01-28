@@ -128,7 +128,7 @@ class DarcyDatasetRaw(Dataset):
         if split == "validate":
             self.Q = npz_data[f"{split}_Q"].astype(np.float32)
         else:
-            self.Q = np.zeros((500,100,100))
+            self.Q = np.zeros((num_training_data,100,100))
         self.u_fine = npz_data[f"{split}_u_h_fine"].astype(np.float32)
 
     def __len__(self):
@@ -568,4 +568,7 @@ torch.save(checkpoint, save_path)
 
 print(f"Model saved to {save_path}")
 print(f"\nTraining finished in {time.time() - start_time:.2f} seconds.")
+with open(log_file, "a") as f:
+    f.write(f"Model saved to {save_path}")
+    f.write(f"\nTraining finished in {time.time() - start_time:.2f} seconds.")
 
