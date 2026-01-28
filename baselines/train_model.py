@@ -317,6 +317,9 @@ if not os.path.exists(log_file):
 
 
 
+print("#########################")
+print("Start training")
+print("#########################")
 
 loss_history = []
 test_history = []
@@ -430,7 +433,9 @@ torch.save(checkpoint, save_path)
 
 print(f"Model saved to {save_path}")
 print(f"\nTraining finished in {time.time() - start_time:.2f} seconds.")
-
+with open(log_file, "a") as f:
+    f.write(f"Model saved to {save_path}")
+    f.write(f"\nTraining finished in {time.time() - start_time:.2f} seconds.")
 
 a_all = fixed["validate_coeffs_a"].astype(np.float32).reshape(-1, 129, 129)
 u_all = fixed["validate_u_h_fine"].astype(np.float32).reshape(-1, 129, 129)

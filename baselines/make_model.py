@@ -359,29 +359,13 @@ def build_darcy_model(
             out_channels=1,
             channel_mlp_skip='linear'
         )
-    elif model_name == 'mg_tfno':
-        from models.mg_tfno import MGTFNO
-        num_levels = 2
-        tfno_kwargs = dict(
-            n_modes=(16, 16),
-            hidden_channels=64,
-            factorization='tucker',
-            implementation='factorized',
-            rank=0.05
-        )
-        core = MGTFNO(
-            in_channels=Cin,
-            out_channels=1,
-            levels=num_levels,
-            kwargs=tfno_kwargs
-        )
     elif model_name == 'deeponet':
         from models.deeponet import DeepONet2DGrid
         core = DeepONet2DGrid(
             s=default_hw[0],
             sensors=256,
             latent_dim=128,
-            width=256,
+            width=512,
             depth=3,
         )
     elif model_name == "transolver":
@@ -389,12 +373,10 @@ def build_darcy_model(
         core = Transolver2DGrid(
             s=default_hw[0],
             dim=128,
-            depth=8,
-            num_slices=64,
+            depth=6,
+            num_slices=32,
             num_heads=8,
             tau=0.5,
-            drop=0.0,
-            attn_drop=0.0,
         )
     else:
         raise ValueError(f"Unknown model: {model_name}")
@@ -414,66 +396,3 @@ def build_darcy_model(
         u_std=u_std,
         default_hw=default_hw,
     )
-
-
-def load_darcy_coeff_model_from_checkpoint(
-    ckpt_path: str,
-    device: Optional[torch.device] = None,
-    strict: bool = True,
-) -> Tuple[DarcyCoeffModel, dict]:
-    """Load a DarcyCoeffModel from a checkpoint.
-
-    - Works with checkpoints saved by train_CNN_v3.py.
-    - Also supports *older* checkpoints (train_CNN_v2.py) that stored
-      `normalizers` as python objects, by extracting their mean/std.
-
-    Returns:
-      model: DarcyCoeffModel (ready for inference)
-      args:  training args dict stored in the checkpoint
-    """
-
-    ckpt = torch.load(ckpt_path, map_location='cpu')
-    args = ckpt.get('args', {})
-
-    model_name = args.get('model', 'UNet')
-    coeff_preproc = args.get('coeff_preproc', 'log')
-    add_grad = bool(args.get('add_grad', True))
-    add_coords = bool(args.get('add_coords', True))
-
-    # Determine Cin to create correctly-shaped buffers.
-    Cin = 1 + (1 if add_grad else 0) + (2 if add_coords else 0)
-    x_mean = torch.zeros(Cin, 1, 1)
-    x_std = torch.ones(Cin, 1, 1)
-    u_mean = torch.zeros(129, 129)
-    u_std = torch.ones(129, 129)
-
-    # Backward-compatible extraction (train_CNN_v2 style)
-    if 'normalizers' in ckpt:
-        norms = ckpt['normalizers']
-        try:
-            x_mean = torch.as_tensor(norms['coeffs'].mean).float().view(Cin, 1, 1)
-            x_std = torch.as_tensor(norms['coeffs'].std).float().view(Cin, 1, 1)
-            u_mean = torch.as_tensor(norms['u'].mean).float().view(129, 129)
-            u_std = torch.as_tensor(norms['u'].std).float().view(129, 129)
-        except Exception:
-            # If anything goes wrong, fall back to zeros/ones and rely on state_dict.
-            pass
-
-    model = build_darcy_model(
-        model_name=model_name,
-        coeff_preproc=coeff_preproc,
-        add_grad=add_grad,
-        add_coords=add_coords,
-        x_mean=x_mean,
-        x_std=x_std,
-        u_mean=u_mean,
-        u_std=u_std,
-    )
-
-    model.load_state_dict(ckpt['model_state_dict'], strict=strict)
-
-    if device is not None:
-        model = model.to(device)
-    model.eval()
-
-    return model, args
