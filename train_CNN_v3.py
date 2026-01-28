@@ -79,7 +79,7 @@ def compute_stats_with_preprocessor(fixed_npz, chunk_size: int = 64):
     """
 
     a_all = fixed_npz["train_coeffs_a"].reshape(-1, 129, 129).astype(np.float32)  # (N,H,W)
-    u_all = fixed_npz["train_u"].reshape(-1, 225).astype(np.float32)  # (N,225)
+    u_all = fixed_npz["train_u"].astype(np.float32)  # (N,225)
 
     print('add_grad:', gparams['add_grad'])
     print('add_coords:', gparams['add_coords'])
@@ -121,7 +121,7 @@ class DarcyDatasetRaw(Dataset):
 
     def __init__(self, npz_data, split: str):
         assert split in ["train", "validate"]
-        self.coeffs = npz_data[f"{split}_coeffs_a"].astype(np.float32)
+        self.coeffs = npz_data[f"{split}_coeffs_a"].reshape(-1, 129, 129).astype(np.float32)
         self.u = npz_data[f"{split}_u"].astype(np.float32)
         self.matrices = npz_data[f"{split}_matrices"].astype(np.float32)
         self.loads = npz_data[f"{split}_load_vectors"].astype(np.float32)
